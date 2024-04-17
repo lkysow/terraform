@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/hashicorp/terraform/internal/addrs"
 	"github.com/hashicorp/terraform/internal/configs"
@@ -40,6 +41,12 @@ type Run struct {
 	// Executing the same run multiple times may or may not update this field
 	// on each execution.
 	ExecutionMeta *RunExecutionMeta
+
+	// The variable caches are used to store the values of variables that have
+	// been evaluated within the context of this run block so we don't have to
+	// re-evaluate them.
+	globalVariables map[string]cty.Value
+	fileVariables   map[string]cty.Value
 }
 
 type RunExecutionMeta struct {
