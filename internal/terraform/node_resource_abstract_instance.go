@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform/internal/configs"
 	"github.com/hashicorp/terraform/internal/configs/configschema"
 	"github.com/hashicorp/terraform/internal/instances"
+	"github.com/hashicorp/terraform/internal/lang/marks"
 	"github.com/hashicorp/terraform/internal/moduletest/mocking"
 	"github.com/hashicorp/terraform/internal/plans"
 	"github.com/hashicorp/terraform/internal/plans/objchange"
@@ -735,8 +736,9 @@ func (n *NodeAbstractResourceInstance) refresh(ctx EvalContext, deposedKey state
 	// configuration, as well as any marks from the schema which were not in
 	// the prior state. New marks may appear when the prior state was from an
 	// import operation, or if the provider added new marks to the schema.
-	if marks := append(priorMarks, schema.ValueMarks(ret.Value, nil)...); len(marks) > 0 {
-		ret.Value = ret.Value.MarkWithPaths(marks)
+	ret.Value = ret.Value.MarkWithPaths(priorMarks)
+	if moreSensitivePaths := schema.SensitivePaths(ret.Value, nil); len(moreSensitivePaths) != 0 {
+		ret.Value = marks.MarkPaths(ret.Value, marks.Sensitive, moreSensitivePaths)
 	}
 
 	return ret, deferred, diags
@@ -1017,10 +1019,9 @@ func (n *NodeAbstractResourceInstance) plan(
 	// to ensure that provider defined private attributes are marked correctly
 	// here.
 	unmarkedPlannedNewVal := plannedNewVal
-	unmarkedPaths = append(unmarkedPaths, schema.ValueMarks(plannedNewVal, nil)...)
-
-	if len(unmarkedPaths) > 0 {
-		plannedNewVal = plannedNewVal.MarkWithPaths(unmarkedPaths)
+	plannedNewVal = plannedNewVal.MarkWithPaths(unmarkedPaths)
+	if sensitivePaths := schema.SensitivePaths(plannedNewVal, nil); len(sensitivePaths) != 0 {
+		plannedNewVal = marks.MarkPaths(plannedNewVal, marks.Sensitive, sensitivePaths)
 	}
 
 	// The provider produces a list of paths to attributes whose changes mean
@@ -1662,9 +1663,9 @@ func (n *NodeAbstractResourceInstance) readDataSource(ctx EvalContext, configVal
 			newVal = cty.UnknownAsNull(newVal)
 		}
 	}
-	pvm = append(pvm, schema.ValueMarks(newVal, nil)...)
-	if len(pvm) > 0 {
-		newVal = newVal.MarkWithPaths(pvm)
+	newVal = newVal.MarkWithPaths(pvm)
+	if sensitivePaths := schema.SensitivePaths(newVal, nil); len(sensitivePaths) != 0 {
+		newVal = marks.MarkPaths(newVal, marks.Sensitive, sensitivePaths)
 	}
 
 	diags = diags.Append(ctx.Hook(func(h Hook) (HookAction, error) {
@@ -1816,9 +1817,9 @@ func (n *NodeAbstractResourceInstance) planDataSource(ctx EvalContext, checkRule
 		// even though we are only returning the config value because we can't
 		// yet read the data source, we need to incorporate the schema marks so
 		// that downstream consumers can detect them when planning.
-		unmarkedPaths = append(unmarkedPaths, schema.ValueMarks(proposedNewVal, nil)...)
-		if len(unmarkedPaths) > 0 {
-			proposedNewVal = proposedNewVal.MarkWithPaths(unmarkedPaths)
+		proposedNewVal = proposedNewVal.MarkWithPaths(unmarkedPaths)
+		if sensitivePaths := schema.SensitivePaths(proposedNewVal, nil); len(sensitivePaths) != 0 {
+			proposedNewVal = marks.MarkPaths(proposedNewVal, marks.Sensitive, sensitivePaths)
 		}
 
 		// Apply detects that the data source will need to be read by the After
@@ -1888,10 +1889,9 @@ func (n *NodeAbstractResourceInstance) planDataSource(ctx EvalContext, checkRule
 			// not only do we want to ensure this synthetic value has the marks,
 			// but since this is the value being returned from the data source
 			// we need to ensure the schema marks are added as well.
-			unmarkedPaths = append(unmarkedPaths, schema.ValueMarks(newVal, nil)...)
-
-			if len(unmarkedPaths) > 0 {
-				newVal = newVal.MarkWithPaths(unmarkedPaths)
+			newVal = newVal.MarkWithPaths(unmarkedPaths)
+			if sensitivePaths := schema.SensitivePaths(newVal, nil); len(sensitivePaths) != 0 {
+				newVal = marks.MarkPaths(newVal, marks.Sensitive, sensitivePaths)
 			}
 
 			// We still want to report the check as failed even if we are still
@@ -2519,8 +2519,9 @@ func (n *NodeAbstractResourceInstance) apply(
 	// re-check the value against the schema, because nested computed values
 	// won't be included in afterPaths, which are only what was read from the
 	// After plan value.
-	if marks := append(afterPaths, schema.ValueMarks(newVal, nil)...); len(marks) > 0 {
-		newVal = newVal.MarkWithPaths(marks)
+	newVal = newVal.MarkWithPaths(afterPaths)
+	if sensitivePaths := schema.SensitivePaths(newVal, nil); len(sensitivePaths) != 0 {
+		newVal = marks.MarkPaths(newVal, marks.Sensitive, sensitivePaths)
 	}
 
 	if newVal == cty.NilVal {
